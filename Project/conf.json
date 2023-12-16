@@ -1,0 +1,22 @@
+{
+    "show_video": true,
+    "use_dropbox": false,
+    "dropbox_access_token": "YOUR_DROPBOX_KEY",
+    "dropbox_base_path": "YOUR_DROPBOX_PATH",
+    "min_upload_seconds": 3.0,
+    "min_motion_frames": 2,
+    "camera_warmup_time": 2.5,
+    "delta_thresh": 2,
+    "min_area": 5000,
+    "known_faces": {
+        "Akash": "FaceImage/MyPhoto.jpg"
+    },
+    "ip_address": "192.0.0.2",
+    "port": "8080",
+    "url": "http://192.168.35.22:8080/video",
+    "Face_image_counter": 21,
+    "Motion_image_counter": 14,
+    "Object_image_counter": 29,
+    "save_interval_seconds": 3,
+    "face_detection_model_path": "Face_Detection_Checkpoints\\content\\drive\\MyDrive\\models\\Face_Detection\\RUN_20231130_121552_285960\\average_model.pth"
+}

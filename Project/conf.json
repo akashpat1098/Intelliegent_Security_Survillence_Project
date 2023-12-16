@@ -18,5 +18,6 @@
     "Motion_image_counter": 14,
     "Object_image_counter": 29,
     "save_interval_seconds": 3,
-    "face_detection_model_path": "Face_Detection_Checkpoints\\content\\drive\\MyDrive\\models\\Face_Detection\\RUN_20231130_121552_285960\\average_model.pth"
+    "face_detection_model_path": "Face_Detection_Checkpoints\\content\\drive\\MyDrive\\models\\Face_Detection\\RUN_20231130_121552_285960\\average_model.pth",
+    "object_detection_model_path": ""
 }

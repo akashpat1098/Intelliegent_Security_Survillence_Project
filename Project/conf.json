@@ -17,9 +17,9 @@
     "batch_size": 0,
     "conf": 0.5,
     "url": "http://192.168.147.177:8080/video",
-    "Face_image_counter": 65,
-    "Motion_image_counter": 30,
-    "Object_image_counter": 85,
+    "Face_image_counter": 83,
+    "Motion_image_counter": 50,
+    "Object_image_counter": 154,
     "save_interval_seconds": 3,
     "face_detection_model_path": "Face_Detection_Checkpoints/content/drive/MyDrive/models/Face_Detection/train2/ckpt_best.pth",
     "object_detection_model_path": ""

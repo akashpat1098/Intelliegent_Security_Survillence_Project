@@ -1,24 +1,24 @@
 import cv2
 import json
 import time
-from multiprocessing import Process
+from multiprocessing import Process, Manager
 
 from face_recognition import load_image_file, face_encodings, face_locations, compare_faces
 import sys
 import datetime
 import dropbox
 import imutils
-def timing_decorator(func_name):
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            start_time = time.time()
-            result = func(*args, **kwargs)
-            end_time = time.time()
-            execution_time = end_time - start_time
-            print(f"[INFO] Execution Time for {func_name}: {execution_time:.4f} seconds")
-            return result
-        return wrapper
-    return decorator
+# def timing_decorator(func_name):
+#     def decorator(func):
+#         def wrapper(*args, **kwargs):
+#             start_time = time.time()
+#             result = func(*args, **kwargs)
+#             end_time = time.time()
+#             execution_time = end_time - start_time
+#             print(f"[INFO] Execution Time for {func_name}: {execution_time:.4f} seconds")
+#             return result
+#         return wrapper
+#     return decorator
 
 class FaceRecognitionSystem:
     def __init__(self,conf):
@@ -45,7 +45,7 @@ class FaceRecognitionSystem:
         self.best_model = self.best_model.to("cuda" if is_available() else "cpu")
         print("[FACE]Loading Completed")
 
-    @timing_decorator("[FACE]process_frame") 
+    # @timing_decorator("[FACE]process_frame") 
     def process_frame(self, frame,useModel):
         if useModel:
             # Use your YOLO NAS model for face detection
@@ -58,7 +58,7 @@ class FaceRecognitionSystem:
             face_locations = self.detect_faces(frame)
             # print(f"Face Location: {face_locations}")
         recognized_names = self.recognize_faces(face_encodings(frame, face_locations))
-        return face_locations, recognized_names
+        return frame,face_locations, recognized_names
 
     def display_info(self, frame, face_locations, recognized_names, fps):
         for bbox, name in zip(face_locations, recognized_names):
@@ -146,7 +146,7 @@ class ObjectDetectionSystem:
         self.best_model = self.best_model.to("cuda" if is_available() else "cpu")
         print("[OBJECT]Loading Completed")
 
-    @timing_decorator("[OBJECT]process_frame") 
+    # @timing_decorator("[OBJECT]process_frame") 
     def process_frame(self, frame):
         # Use your YOLO NAS model for object detection
         images_predictions = self.best_model.predict(frame, conf=0.50)
@@ -157,8 +157,8 @@ class ObjectDetectionSystem:
             class_names_list = [image_prediction.class_names[cid] for cid in class_ids]
             object_locations = [(y1, x2, y2, x1) for x1, y1, x2, y2 in bboxes]
             # print(f"[OBJECT]Object Location: {(object_locations)}, {(class_names_list)}")
-
-        return object_locations ,class_names_list
+        return frame,object_locations ,class_names_list
+    
     def display_info(self, frame, object_locations,class_names_list, fps):
         for bbox, name in zip(object_locations, class_names_list):
             top, right, bottom, left = bbox
@@ -251,7 +251,7 @@ class MotionDetector:
         dropbox_access_token = self.conf["dropbox_access_token"]
         return dropbox.Dropbox(dropbox_access_token)
 
-    @timing_decorator("[MOTION]process_frame") 
+    # @timing_decorator("[MOTION]process_frame") 
     def process_frame(self, frame):
         # frame = imutils.resize(frame, width=400)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -260,7 +260,7 @@ class MotionDetector:
         if self.avg is None:
             print("[MOTION] starting background model...")
             self.avg = gray.copy().astype("float")
-            return "Unoccupied"
+            return (frame,"Unoccupied")
 
         cv2.accumulateWeighted(gray, self.avg, 0.5)
         frame_delta = cv2.absdiff(gray, cv2.convertScaleAbs(self.avg))
@@ -275,15 +275,15 @@ class MotionDetector:
             (x, y, w, h) = cv2.boundingRect(c)
             # print(f"Motion Location: {(x, y, w, h)}")
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            return "Occupied"
+            return (frame,"Occupied")
 
-        return "Unoccupied"
+        return (frame,"Unoccupied")
 
     def display_info(self, frame, isOccupied,fps):
         ts = datetime.datetime.now().strftime("%A %d %B %Y %I:%M:%S%p")
         cv2.putText(frame, f"Room Status: {isOccupied}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
         cv2.putText(frame, ts, (10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 255), 1)
-        cv2.putText(frame, f"FPS: {fps:.2f}", (10, 53), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        # cv2.putText(frame, f"FPS: {fps:.2f}", (10, 53), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
     def save_image_locally(self, frame):
         local_path = f"MotionImage/{self.image_counter}.jpg"
@@ -398,41 +398,45 @@ class CombinedSystem:
         prev_time = curr_time
         return fps
     
-    def run_MotionDetection(self,frame,fps):
-        roi = self.motion_system.extract_small_square_area(frame)
-        self.motion_system.draw_square_on_frame(frame)
-        isOccupied = self.motion_system.process_frame(roi)
-        self.motion_system.display_info(frame, isOccupied,fps)
-        self.motion_system.willImageBeSaved(frame, isOccupied)
+    def run_MotionDetection(self,frame_queue,output_queue):
+        while True:
+            frame,prev_time= frame_queue.get()
+            if frame is None:
+                output_queue.put((None,None,None))
+                break
+            roi = self.motion_system.extract_small_square_area(frame)
+            self.motion_system.draw_square_on_frame(frame)
+            frame,isOccupied = self.motion_system.process_frame(roi)
+            output_queue.put((frame, isOccupied,prev_time))
     
-    def run_FaceDetection(self,frame,fps,frame_count):
-        if (frame_count % self.conf["skip_frames"] == 0):
-            face_locations, recognized_names = self.face_system.process_frame(frame,useModel)
-            self.face_system.display_info(frame, face_locations, recognized_names, fps)
-            self.face_system.willImageBeSaved(frame, recognized_names)
-
-    def run_ObjectDetection(self,frame,fps,frame_count):
-        if (frame_count % self.conf["skip_frames"] == 0):
-            object_locations, class_names_list = self.object_system.process_frame(frame)
-            self.object_system.display_info(frame, object_locations,class_names_list, fps)
-            self.object_system.willImageBeSaved(frame, len(class_names_list))
-
-    def run_combined_system(self):
-        # Motion Detection
-        print("[INFO] Warming up...")
-        time.sleep(self.conf["camera_warmup_time"])
-
-        # Face Detection
-        if self.use_FaceDetector and useModel:
-            self.face_system.load_model()
-        # Motion Detection
-        if self.use_ObjectDetector:
-            self.object_system.load_model()
-
-        # Common
-        prev_time = time.time()
+    def run_FaceDetection(self,frame_queue,output_queue):
         frame_count = 0
-        while self.camera.isOpened():
+        while True:
+            frame,prev_time = frame_queue.get()
+            if frame is None:
+                output_queue.put((None,None,None))
+                break
+            frame_count += 1
+            if (frame_count % self.conf["skip_frames"] == 0):
+                frame,face_locations, recognized_names = self.face_system.process_frame(frame,useModel)
+                output_queue.put((frame,face_locations, recognized_names,prev_time))
+
+
+    def run_ObjectDetection(self,frame_queue,output_queue):
+        frame_count = 0
+        while True:
+            frame,prev_time = frame_queue.get()
+            if frame is None:
+                output_queue.put((None,None,None))
+                break
+            frame_count += 1
+            if (frame_count % self.conf["skip_frames"] == 0):
+                frame,object_locations, class_names_list = self.object_system.process_frame(frame)
+                output_queue.put((frame,object_locations, class_names_list,prev_time))
+
+    def capture_video(self,frame_queue, terminate_flag):
+        prev_time = time.time()
+        while not terminate_flag.is_set():
             ret, frame = self.camera.read()
             if not ret:
                 if self.use_FaceDetector:
@@ -444,28 +448,37 @@ class CombinedSystem:
                 with open(self.config_path, 'w') as config_file:
                     json.dump(self.conf, config_file, indent=4)
                 break
-            frame_count += 1
+            frame_queue.put(frame,prev_time)
+         # Signal the termination to frame processing functions
+        frame_queue.put(None)
+        frame_queue.put(None)
+        self.camera.release()
+    def display_frames(self,face_output_queue, object_output_queue, motion_output_queue,terminate_flag):
+        while not terminate_flag.is_set():
+            # Get the original frames and bounding box information from the output queues
+            face_frame,face_locations, recognized_names,prev_time = face_output_queue.get()
+            object_frame,object_locations, class_names_list,prev_time = object_output_queue.get()
+            motion_frame, isOccupied,prev_time = motion_output_queue.get()
+
+            if motion_frame is None or object_locations is None or face_locations is None:
+                break  # Break the loop if termination signal is received
             fps = self.calculate_fps(prev_time)
 
-            # Motion Detection
             if self.use_MotionDetector:
-                self.run_MotionDetection(frame,fps)
-                # motion_process = Process(target=self.run_MotionDetection,args=(frame,fps))
-                # motion_process.start()
-            # Face Detection and Recognition
+                self.motion_system.display_info(motion_frame, isOccupied,fps)
+                self.motion_system.willImageBeSaved(motion_frame, isOccupied)
+
             if self.use_FaceDetector:
-                self.run_FaceDetection(frame,fps,frame_count)
-                # face_process = Process(target=self.run_FaceDetection,args=(frame,fps))
-                # face_process.start()
-            # Object Detection
+                self.face_system.display_info(face_frame, face_locations, recognized_names, fps)
+                self.face_system.willImageBeSaved(face_frame, recognized_names)
+
             if self.use_ObjectDetector:
-                self.run_ObjectDetection(frame,fps,frame_count)
-                # object_process = Process(target=self.run_ObjectDetection,args=(frame,fps))
-                # object_process.start()
+                self.object_system.display_info(object_frame, object_locations,class_names_list, fps)
+                self.object_system.willImageBeSaved(object_frame, len(class_names_list))
 
             if self.conf["show_video"]:
-                # cv2.putText(frame, f"FPS: {fps:.2f}", (10, 53), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                cv2.imshow("Detection", frame)
+                cv2.putText(object_frame, f"FPS: {fps:.2f}", (10, 53), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                cv2.imshow("Detection", object_frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     if self.use_FaceDetector:
                         self.conf["Face_image_counter"] = self.face_system.image_counter
@@ -478,26 +491,78 @@ class CombinedSystem:
                         # object_process.terminate()
                     with open(self.config_path, 'w') as config_file:
                         json.dump(self.conf, config_file, indent=4)
-                    break
-
-        self.camera.release()
+                    terminate_flag.set()
         cv2.destroyAllWindows()
+
+    def run_combined_system(self):
+        pass
+
 
 # Usage example
 if __name__ == "__main__":
-    # Specify the path to your JSON configuration file
-    config_path = "Project\conf.json"
-    useModel = False
-    video_path = None
-    docenter= True
-    width = 200
-    height = 200
-    # video_path = "static/vvvv.mp4"
-    use_FaceDetector = True
-    use_MotionDetector = True
-    use_ObjectDetector = True
-    # x=0 to 570,y= 0 to 330, w = 0 to 720 and h = 0 to 480 w>h
-    # roi = (260,140,500,450)
-    roi = None
-    combined_system = CombinedSystem(roi,config_path, video_path,use_FaceDetector,use_MotionDetector,use_ObjectDetector)
-    combined_system.run_combined_system()
+    with Manager() as manager:
+        # Specify the path to your JSON configuration file
+        config_path = "Project\conf.json"
+        useModel = False
+        video_path = None
+        docenter= True
+        width = 200
+        height = 200
+        # video_path = "static/vvvv.mp4"
+        use_FaceDetector = True
+        use_MotionDetector = True
+        use_ObjectDetector = True
+        # x=0 to 570,y= 0 to 330, w = 0 to 720 and h = 0 to 480 w>h
+        # roi = (260,140,500,450)
+        roi = None
+        combined_system = CombinedSystem(roi,config_path, video_path,use_FaceDetector,use_MotionDetector,use_ObjectDetector)
+        # combined_system.run_combined_system()
+
+        # Motion Detection
+        print("[INFO] Warming up...")
+        time.sleep(combined_system.conf["camera_warmup_time"])
+
+        # Face Detection
+        if combined_system.use_FaceDetector and useModel:
+            combined_system.face_system.load_model()
+        # Motion Detection
+        if combined_system.use_ObjectDetector:
+            combined_system.object_system.load_model()
+
+        frame_queue = manager.Queue()
+        face_output_queue = manager.Queue()
+        object_output_queue = manager.Queue()
+        motion_output_queue = manager.Queue()
+        terminate_flag = manager.Event()
+
+        # Start the video capture process
+        video_process = Process(target=combined_system.capture_video, args=(frame_queue, terminate_flag))
+        video_process.start()
+
+        # Start the frame processing processes
+        if combined_system.use_FaceDetector:
+            face_process = Process(target=combined_system.run_FaceDetection, args=(frame_queue, face_output_queue))
+            face_process.start()
+
+        if combined_system.use_ObjectDetector:
+            object_process = Process(target=combined_system.run_ObjectDetection, args=(frame_queue, object_output_queue))
+            object_process.start()
+        if combined_system.use_MotionDetector:
+            motion_process = Process(target=combined_system.run_MotionDetection, args=(frame_queue, motion_output_queue))
+            motion_process.start()
+
+        # Start the display process as daemon
+        display_process = Process(target=combined_system.display_frames, args=(face_output_queue, object_output_queue, motion_output_queue,terminate_flag))
+        display_process.daemon = True
+        display_process.start()
+
+        # Wait for the user to press 'q' to terminate the program
+        while not terminate_flag.is_set():
+            time.sleep(1)
+
+        # Join the video process (not strictly necessary due to the daemon flag)
+        video_process.join()
+
+        face_process.join()
+        object_process.join()
+        motion_process.join()

@@ -5,16 +5,25 @@ import sys
 import time
 import json 
 import datetime
+def timing_decorator(func_name):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            end_time = time.time()
+            execution_time = end_time - start_time
+            print(f"[INFO] Execution Time for {func_name}: {execution_time:.4f} seconds")
+            return result
+        return wrapper
+    return decorator
 class FaceRecognitionSystem:
-    def __init__(self,  config_path='conf.json', video_path=None,isCombined=False):
+    def __init__(self,  config_path='conf.json', video_path=None):
         self.config_path = config_path
         self.conf = self.load_configuration()
-        self.isCombined = isCombined
         self.last_save_time = time.time()
         self.image_counter = self.conf["Face_image_counter"]
-        if isCombined == False:
-            self.video_path = video_path
-            self.camera = self.initialize_camera()
+        self.video_path = video_path
+        self.camera = self.initialize_camera()
         self.known_face_encodings, self.known_face_names = self.initialize_known_faces()
 
     def load_configuration(self):
@@ -35,17 +44,18 @@ class FaceRecognitionSystem:
         from super_gradients.training import models  #Comment out when not using model
         from torch.cuda import is_available
         sys.stdout = sys.__stdout__  # Resolve the error of models import
-        self.best_model = models.get('yolo_nas_l ', num_classes=len(['Face']), checkpoint_path=self.conf["face_detection_model_path"])
+        self.best_model = models.get('yolo_nas_m ', num_classes=len(['faces','face']), checkpoint_path=self.conf["face_detection_model_path"])
         self.best_model = self.best_model.to("cuda" if is_available() else "cpu")
         print("[FACE]Loading Completed")
+    @timing_decorator("process_frame") 
     def process_frame(self, frame,useModel):
         if useModel:
             # Use your YOLO NAS model for face detection
-            images_predictions = self.best_model.predict(frame)
+            images_predictions = self.best_model.predict(frame,conf=self.conf['conf'])
             for image_prediction in images_predictions:
                 bboxes = image_prediction.prediction.bboxes_xyxy
                 face_locations = [(y1, x2, y2, x1) for x1, y1, x2, y2 in bboxes]
-                print(f"[FACE]Face Location: {face_locations}")
+                print(f"[FACE]Face Location: {face_locations}") 
         else:
             face_locations = self.detect_faces(frame)
             # print(f"Face Location: {face_locations}")
@@ -55,11 +65,10 @@ class FaceRecognitionSystem:
     def display_info(self, frame, face_locations, recognized_names, fps):
         for bbox, name in zip(face_locations, recognized_names):
             top, right, bottom, left = bbox
-            cv2.rectangle(frame, (int(left), int(top)), (int(right), int(bottom)), (0, 255, 0), 3)
+            cv2.rectangle(frame, (int(left), int(top)), (int(right), int(bottom)), (0, 255, 0), 1)
             font = cv2.FONT_HERSHEY_DUPLEX
             cv2.putText(frame, name, (int(left) + 6, int(bottom) - 6), font, 0.5, (255, 255, 255), 1)
-            if self.isCombined == False:
-                cv2.putText(frame, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.putText(frame, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         
     def detect_faces(self, frame):
         return face_locations(frame)
@@ -114,7 +123,7 @@ class FaceRecognitionSystem:
     def run(self,useModel = False):
         if useModel:
             self.load_model()
-
+        frame_count = 0
         prev_time = time.time()
         while self.camera.isOpened():
             ret, frame = self.camera.read()
@@ -123,10 +132,12 @@ class FaceRecognitionSystem:
                 with open(self.config_path, 'w') as config_file:
                     json.dump(self.conf, config_file, indent=4)
                 break
+            frame_count += 1
             fps = self.calculate_fps(prev_time)
-            face_locations, recognized_names = self.process_frame(frame,useModel)
-            self.display_info(frame, face_locations, recognized_names, fps)
-            self.willImageBeSaved(frame, recognized_names)
+            if (frame_count % self.conf["skip_frames"] == 0):
+                face_locations, recognized_names = self.process_frame(frame,useModel)
+                self.display_info(frame, face_locations, recognized_names, fps)
+                self.willImageBeSaved(frame, recognized_names)
             if self.conf["show_video"]:
                 cv2.imshow('Face Recognition', frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -140,8 +151,11 @@ class FaceRecognitionSystem:
 # Usage example
 if __name__ == "__main__":
     # Specify the path to your JSON configuration file
-    config_path = 'Project\conf.json'
+    config_path = 'Project/conf.json'
     useModel = True
+    # video_path = "static/vvvv.mp4"
     video_path = None
     face_recognition_system = FaceRecognitionSystem(config_path, video_path)
     face_recognition_system.run(useModel)
+
+

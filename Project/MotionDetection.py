@@ -4,20 +4,29 @@ import time
 import dropbox
 import imutils
 import json
-
+def timing_decorator(func_name):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            end_time = time.time()
+            execution_time = end_time - start_time
+            print(f"[INFO] Execution Time for {func_name}: {execution_time:.4f} seconds")
+            return result
+        return wrapper
+    return decorator
 class MotionDetector:
-    def __init__(self ,config_path='conf.json',video_path=None,isCombined=False,roi = (260,140,200,200)):
+    def __init__(self ,config_path='conf.json',video_path=None,roi = (260,140,200,200)):
         self.config_path = config_path
         self.conf = self.load_configuration()
-        if isCombined == False:
-            self.video_path = video_path
-            self.camera = self.initialize_camera()
-            if docenter == True:
-                frame_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
-                frame_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                x = int(frame_width / 2 - width / 2)
-                y = int(frame_height / 2 - height / 2)
-                roi = (x,y,width,height)
+        self.video_path = video_path
+        self.camera = self.initialize_camera()
+        if docenter == True:
+            frame_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+            frame_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            x = int(frame_width / 2 - width / 2)
+            y = int(frame_height / 2 - height / 2)
+            roi = (x,y,width,height)
         self.small_square_area = roi
         print(f"[MOTION]ROI:{roi}")
         self.client = self.initialize_dropbox_client() if self.conf["use_dropbox"] else None
@@ -48,7 +57,7 @@ class MotionDetector:
                 print("[MOTION]Falling back to the default camera.")
                 camera = cv2.VideoCapture(0)  # 0 represents the default camera (usually the built-in webcam)
         return camera
-
+    @timing_decorator("process_frame") 
     def process_frame(self, frame):
         # frame = imutils.resize(frame, width=400)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)

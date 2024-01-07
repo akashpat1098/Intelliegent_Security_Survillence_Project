@@ -4,17 +4,25 @@ import sys
 import time
 import json 
 import datetime
+def timing_decorator(func_name):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            end_time = time.time()
+            execution_time = end_time - start_time
+            print(f"[INFO] Execution Time for {func_name}: {execution_time:.4f} seconds")
+            return result
+        return wrapper
+    return decorator
 class ObjectDetectionSystem:
-    def __init__(self,  config_path='conf.json', video_path=None,isCombined=False):
+    def __init__(self,  config_path='conf.json', video_path=None):
         self.config_path = config_path
         self.conf = self.load_configuration()
-        self.isCombined = isCombined
         self.last_save_time = time.time()
         self.image_counter = self.conf["Object_image_counter"]
-        if isCombined == False:
-            self.video_path = video_path
-            self.camera = self.initialize_camera()
-        # self.known_face_encodings, self.known_face_names = self.initialize_known_faces()
+        self.video_path = video_path
+        self.camera = self.initialize_camera()
 
     def load_configuration(self):
         with open(self.config_path) as config_file:
@@ -29,7 +37,8 @@ class ObjectDetectionSystem:
         # self.best_model = models.get('yolo_nas_l ', num_classes=len(['Face']), checkpoint_path=self.conf["face_detection_model_path"])
         self.best_model = self.best_model.to("cuda" if is_available() else "cpu")
         print("[OBJECT]Loading Completed")
-        
+
+    @timing_decorator("process_frame") 
     def process_frame(self, frame):
         # Use your YOLO NAS model for object detection
         images_predictions = self.best_model.predict(frame, conf=0.50)
@@ -42,15 +51,14 @@ class ObjectDetectionSystem:
             # print(f"[OBJECT]Object Location: {(object_locations)}, {(class_names_list)}")
 
         return object_locations ,class_names_list
-
+    @timing_decorator("display_info") 
     def display_info(self, frame, object_locations,class_names_list, fps):
         for bbox, name in zip(object_locations, class_names_list):
             top, right, bottom, left = bbox
-            cv2.rectangle(frame, (int(left), int(top)), (int(right), int(bottom)), (0, 255, 0), 3)
+            cv2.rectangle(frame, (int(left), int(top)), (int(right), int(bottom)), (0, 255, 0), 1)
             font = cv2.FONT_HERSHEY_DUPLEX
             cv2.putText(frame, name, (int(left) + 6, int(bottom) - 6), font, 0.5, (255, 255, 255), 1)
-            # if self.isCombined == False:
-            #     cv2.putText(frame, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.putText(frame, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         
     
 
@@ -93,6 +101,7 @@ class ObjectDetectionSystem:
     def run(self):
         prev_time = time.time()
         self.load_model()
+        frame_count = 0
         while self.camera.isOpened():
             ret, frame = self.camera.read()
             if not ret:
@@ -100,10 +109,12 @@ class ObjectDetectionSystem:
                 with open(self.config_path, 'w') as config_file:
                     json.dump(self.conf, config_file, indent=4)
                 break
+            frame_count += 1
             fps = self.calculate_fps(prev_time)
-            object_locations, class_names_list = self.process_frame(frame)
-            self.display_info(frame, object_locations,class_names_list, fps)
-            self.willImageBeSaved(frame, len(class_names_list))
+            if (frame_count % self.conf["skip_frames"] == 0):   
+                object_locations, class_names_list = self.process_frame(frame)
+                self.display_info(frame, object_locations,class_names_list, fps)
+                self.willImageBeSaved(frame, len(class_names_list))
             if self.conf["show_video"]:
                 cv2.imshow('Object Detection', frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -117,7 +128,8 @@ class ObjectDetectionSystem:
 # Usage example
 if __name__ == "__main__":
     # Specify the path to your JSON configuration file
-    config_path = 'Project\conf.json'
+    config_path = 'Project/conf.json'
+    # video_path = "static/vvvv.mp4"
     video_path = None
     face_recognition_system = ObjectDetectionSystem(config_path, video_path)
     face_recognition_system.run()

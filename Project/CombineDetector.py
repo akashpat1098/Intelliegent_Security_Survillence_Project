@@ -54,7 +54,7 @@ class FaceRecognitionSystem:
             for image_prediction in images_predictions:
                 bboxes = image_prediction.prediction.bboxes_xyxy
                 face_locations = [(y1, x2, y2, x1) for x1, y1, x2, y2 in bboxes]
-                print(f"[FACE]Face Location: {face_locations}") 
+                # print(f"[FACE]Face Location: {face_locations}") 
         else:
             face_locations = self.detect_faces(frame)
             # print(f"Face Location: {face_locations}")
@@ -145,14 +145,13 @@ class ObjectDetectionSystem:
                 self.last_save_time = current_time
 
 class MotionDetector:
-    def __init__(self ,conf,camera,docenter,width,height,roi = (260,140,200,200)):
+    def __init__(self ,conf,frame_size,docenter,width,height,roi = (260,140,200,200)):
         self.conf = conf
-        # if docenter == True:
-        #     frame_width = int(camera.get(cv2.CAP_PROP_FRAME_WIDTH))
-        #     frame_height = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        #     x = int(frame_width / 2 - width / 2)
-        #     y = int(frame_height / 2 - height / 2)
-        #     roi = (x,y,width,height)
+        if docenter == True:
+            frame_width, frame_height = frame_size
+            x = int(frame_width / 2 - width / 2)
+            y = int(frame_height / 2 - height / 2)
+            roi = (x,y,width,height)
         self.small_square_area = roi
         print(f"[MOTION]ROI:{roi}")
         self.client = self.initialize_dropbox_client() if self.conf["use_dropbox"] else None
@@ -258,10 +257,10 @@ class CombinedSystem:
         object_detector = ObjectDetectionSystem(conf)
         return object_detector
     
-    def initialize_motion_object(self,conf,camera,roi,docenter,width,height):
+    def initialize_motion_object(self,conf,frame_size,roi,docenter,width,height):
         if roi is None:
             roi = (260,140,200,200)
-        motion_detector = MotionDetector(conf,camera,docenter,width,height,roi=roi)
+        motion_detector = MotionDetector(conf,frame_size,docenter,width,height,roi=roi)
         return motion_detector
     
     def calculate_fps(self, prev_time):
@@ -310,9 +309,14 @@ class CombinedSystem:
                 frame,object_locations, class_names_list = self.object_system.process_frame(frame)
                 output_queue.put((frame,object_locations, class_names_list,prev_time))
 
-    def capture_video(self,frame_queue, terminate_flag):
+    def capture_video(self,frame_queue, terminate_flag,frame_size_queue):
         camera = self.initialize_camera()
         prev_time = time.time()
+        if self.use_MotionDetector: #this is for motion detection only
+            frame_width = int(camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+            frame_height = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            frame_size_queue.put((frame_width, frame_height))
+
         while not terminate_flag.is_set():
             ret, frame = camera.read()
             if not ret:
@@ -370,10 +374,11 @@ class CombinedSystem:
             face_output_queue = manager.Queue()
             object_output_queue = manager.Queue()
             motion_output_queue = manager.Queue()
+            frame_size_queue = manager.Queue()
             terminate_flag = manager.Event()
 
             # Start the video capture process
-            video_process = Process(target=self.capture_video, args=(frame_queue,terminate_flag))
+            video_process = Process(target=self.capture_video, args=(frame_queue,terminate_flag,frame_size_queue))
             video_process.start()
 
             # Start the frame processing processes
@@ -388,8 +393,8 @@ class CombinedSystem:
                 object_process.start()
 
             if self.use_MotionDetector:
-                camera = "dummy"
-                self.motion_system = self.initialize_motion_object(self.conf,camera,self.roi,docenter,width,height)
+                frame_size = frame_size_queue.get()
+                self.motion_system = self.initialize_motion_object(self.conf,frame_size,self.roi,docenter,width,height)
                 motion_process = Process(target=self.run_MotionDetection, args=(frame_queue, motion_output_queue))
                 motion_process.start()
 
@@ -412,9 +417,9 @@ class CombinedSystem:
 if __name__ == "__main__":
         # Specify the path to your JSON configuration file
         config_path = "Project\conf.json"
-        useModel = False
+        useModel = True
         video_path = None
-        docenter= False
+        docenter= True
         width = 200
         height = 200
         # video_path = "static/vvvv.mp4"

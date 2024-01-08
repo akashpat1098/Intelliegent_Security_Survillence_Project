@@ -58,13 +58,13 @@ def display_frames(output_queue1, output_queue2, terminate_flag):
 
         # Overlay bounding boxes on the frames with different colors
         for bbox in bounding_boxes1:
-            cv2.rectangle(display_frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)  # Green color
+            cv2.rectangle(frame1, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)  # Green color
 
         for bbox in bounding_boxes2:
-            cv2.rectangle(display_frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2)  # Blue color
+            cv2.rectangle(frame2, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2)  # Blue color
 
         # Display the frame with overlaid bounding boxes
-        cv2.imshow("Processed Frames", display_frame)
+        cv2.imshow("Processed Frames", np.hstack((frame1, frame2)))
 
         frame_count += 1
         elapsed_time = time.time() - start_time
@@ -129,3 +129,12 @@ if __name__ == "__main__":
         # Wait for the frame processing processes to finish
         p1.join()
         p2.join()
+
+
+
+
+
+
+
+
+    
